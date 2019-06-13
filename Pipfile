@@ -4,8 +4,11 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-opencv-python = "*"
 imutils = "*"
+webcolors = "*"
+scipy = "*"
+scikit-image = "*"
+matplotlib = "*"
+opencv-contrib-python = "*"
 
 [dev-packages]
-
