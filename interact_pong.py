@@ -7,6 +7,8 @@ template.
 If Python and Arcade are installed, this example can be run from the command line with:
 python -m arcade.examples.starting_template
 """
+import sys
+import argparse
 import random
 import arcade
 
@@ -28,8 +30,14 @@ from processors.core import FrameProcessor
 
 class Detector :
 
-    def __init__(self) :
-        self.cam = cv.VideoCapture(0, cv.CAP_DSHOW)
+    def __init__(self, source=0) :
+
+        # use DSHOW api for windows
+        api = cv.CAP_ANY
+        if isinstance(source, int) and sys.platform == 'win32' :
+            api = cv.CAP_DSHOW
+
+        self.cam = cv.VideoCapture(source, api)
         self.win = WindowManager('capture', self.onKeypress)
         self.win.createWindow()
         self.cap = CaptureManager(self.cam, self.win, True)
@@ -156,7 +164,7 @@ class MyGame(arcade.Window):
     with your own code. Don't leave 'pass' in this program.
     """
 
-    def __init__(self, width, height, title):
+    def __init__(self, width, height, title, options):
         super().__init__(width, height, title)
 
         arcade.set_background_color(arcade.color.AMAZON)
@@ -174,6 +182,9 @@ class MyGame(arcade.Window):
         self.ball_lost = False
         self.game_over = False
 
+        # options
+        self.options = options
+
         # the move detector
         self.detector = None
         
@@ -188,7 +199,7 @@ class MyGame(arcade.Window):
         self.score_bottom = 0
 
         # setup move detector
-        self.detector = Detector()
+        self.detector = Detector(self.options.source)
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
@@ -332,9 +343,31 @@ class MyGame(arcade.Window):
         pass
 
 
+def parse_args() :
+    """
+    Choose source
+    """
+    # define parser for arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        'source',
+        nargs='?',
+        default='0',
+        help='device, url or file as video source'
+    )
+    args = parser.parse_args()
+
+    # adjust arguments
+    # convert source to int if contains only decimal digits
+    if args.source.isdecimal() :
+        args.source = int(args.source)
+    print(args)
+    return args
+    
 def main():
     """ Main method """
-    game = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+    args = parse_args()
+    game = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, options=args)
     game.setup()
     arcade.run()
 

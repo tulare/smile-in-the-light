@@ -138,7 +138,7 @@ class CaptureManager :
     def startWritingVideo(self, filename, encoding='I420') :
         """Start writing exited frames to a video file."""
         self._videoFilename = filename
-        self._videoEncoding = cv2.VideoWriter_fourcc(*encoding)
+        self._videoEncoding = cv.VideoWriter_fourcc(*encoding)
 
     def stopWritingVideo(self) :
         """Stop writing exited frames to a video file."""
