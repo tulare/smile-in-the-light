@@ -2,6 +2,7 @@
 
 import sys
 import cv2 as cv
+import numpy as np
 import time
 
 __all__ = [ 'CaptureManager', 'CameraCapture' ]
@@ -103,7 +104,7 @@ class CaptureManager :
         # Draw to the window, if any
         if self.previewWindowManager is not None :
             if self.shouldMirrorPreview :
-                mirroredFrame = numpy.fliplr(self._frame).copy()
+                mirroredFrame = np.fliplr(self._frame).copy()
                 self.previewWindowManager.show(mirroredFrame)
             else :
                 self.previewWindowManager.show(self._frame)
