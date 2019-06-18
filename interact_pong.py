@@ -27,10 +27,41 @@ import cv2 as cv
 from ui.capture import CaptureManager
 from ui.window import WindowManager
 from processors.core import FrameProcessor
+from processors.trackers import Tracker
+
+
+class TrackingProcessor(FrameProcessor) :
+
+    def __init__(self, algo='MOSSE') :
+        self.algo = algo
+        self.tracker = None
+        self.tracked = False
+        super().__init__()
+
+    def params(self, **kwargs) :
+        self.tracker = Tracker.create(self.algo)
+        
+    def apply(self, frame, context) :
+        # init tracking on first frames
+        if not self.tracked :
+            self.tracked = self.tracker.init(frame, context.rect)
+            return frame
+
+        # update tracking on following frames
+        success, rect = self.tracker.update(frame)
+        if success :
+            x, y, w, h = (int(v) for v in rect)
+            context.rect = (x, y, w, h)
+            cv.rectangle(frame, context.rect, (0,255,0), 2)
+        else :
+            cv.rectangle(frame, context.rect, (0,0,255), 2)
+        
+        return frame
+
 
 class Detector :
 
-    def __init__(self, source=0) :
+    def __init__(self, source, algo) :
 
         # use DSHOW api for windows
         api = cv.CAP_ANY
@@ -40,48 +71,92 @@ class Detector :
         self.cam = cv.VideoCapture(source, api)
         self.win = WindowManager('capture', self.onKeypress)
         self.win.createWindow()
-        self.cap = CaptureManager(self.cam, self.win, True)
-        self.proc = TrackingProcessor()
-        self.frameno = 0
-        self.rect = (275, 58, 133, 404)
+        self.win.waitKeyDelay = 1
+        self.cap = CaptureManager(self.cam, self.win, False)
+        self.cap.width = SCREEN_WIDTH
+        self.cap.height = SCREEN_HEIGHT
+
+        # processor
+        self.proc = TrackingProcessor(algo)
+
+        # initial rect for detection
+        #self.rect = (275, 58, 133, 404)
+        size_x, size_y = 130, 350
+        self.rect = ((SCREEN_WIDTH - size_x)//2, (SCREEN_HEIGHT - size_y)//2, size_x, size_y)
+
+    @property
+    def frameno(self) :
+        return self.cap.framesElapsed
+
+    @property
+    def algo(self) :
+        return self.proc.algo
+
+    @property
+    def center_x(self) :
+        """
+        x coordinate of the self.rect center
+        """
+        return self.rect[0] + self.rect[1] // 2
+
+    @property
+    def center_y(self) :
+        """
+        y coordinate of the self.rect center
+        """
+        return self.rect[1] + self.rect[3] // 2
         
     def onKeypress(self, keycode) :
-        pass
+
+        if keycode == ord('-') :
+            self.win.waitKeyDelay -= 1
+        elif keycode == ord('+') :
+            self.win.waitKeyDelay += 1
+
+        if self.win.waitKeyDelay < 1 :
+            self.win.waitKeyDelay = 1            
+
 
     def update(self) :
-        if self.win.isCreated :
-            # enter frame and capture
-            self.cap.enterFrame()
-            frame = self.cap.frame
-            self.frameno += 1
+        # enter frame and capture
+        self.cap.enterFrame()
+        frame = self.cap.frame
 
-            # process to detection
-            frame = self.proc.apply(frame, self)
+        # mirror
+        frame[:,::-1,:] = frame
 
-            # exit frame and process events
-            self.cap.exitFrame()
-            self.win.processEvents()
-        
+        # process to detection
+        frame = self.proc.apply(frame, self)
 
-class TrackingProcessor(FrameProcessor) :
+        # display feedback
+        self.display_infos(frame)
 
-    def params(self, **kwargs) :
-        self.tracker = cv.TrackerMOSSE_create()
-        
-    def apply(self, frame, context) :
-        if context.frameno == 1 :
-            roi = context.rect
-            ok = self.tracker.init(frame, roi)
-            return frame
+        # exit frame and process events
+        self.cap.exitFrame()
 
-        success, rect = self.tracker.update(frame)
-        if success :
-            x, y, w, h = (int(v) for v in rect)
-            context.rect = (x, y, w, h)
-            cv.rectangle(frame, (x, y), (x+w, y+h), (0,255,0), 2)
-        
-        return frame
-
+    def display_infos(self, frame) :
+        text_info = '{} @{:.0f}fps - {:2d}ms - {:4d}'.format(
+            self.algo,
+            self.cap.fpsEstimate,
+            self.win.waitKeyDelay,
+            self.frameno,
+        )            
+        cv.putText(
+            frame,
+            text=text_info,
+            org=(15, 15),
+            fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
+            color=(0, 0, 0),
+            thickness=1
+        )    
+        cv.putText(
+            frame,
+            text=text_info,
+            org=(14, 14),
+            fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
+            color=(0, 215, 255),
+            thickness=1
+        )    
 
 class Ball(arcade.Sprite) :
     """
@@ -151,8 +226,13 @@ class Paddle(arcade.Sprite) :
         self.center_y += self.change_y
 
         # keep them between lateral walls (screen limit)
-        if self.left < 0 or self.right > SCREEN_WIDTH :
+        if self.left < 0 :
             self.change_x *= -1
+            self.left = 0
+
+        if self.right > SCREEN_WIDTH :
+            self.change_x *= -1
+            self.right = SCREEN_WIDTH
 
 
 class MyGame(arcade.Window):
@@ -199,7 +279,7 @@ class MyGame(arcade.Window):
         self.score_bottom = 0
 
         # setup move detector
-        self.detector = Detector(self.options.source)
+        self.detector = Detector(self.options.source, self.options.algo)
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
@@ -248,8 +328,12 @@ class MyGame(arcade.Window):
         self.paddle_list.draw()
         self.ball_list.draw()
 
-        output = f"haut : {self.score_top:02d}\nbas : {self.score_bottom:02d}"
-        arcade.draw_text(output, 10, 20, arcade.color.RED, 14)
+        output = f"""{self.score_bottom:2d}"""
+        arcade.draw_text(output, 10, SCREEN_HEIGHT//6, arcade.color.BLUE, 28)
+        output = f"""{self.score_top:2d}"""
+        arcade.draw_text(output, 10, SCREEN_HEIGHT//1.33, arcade.color.WHITE, 28)
+        #output = f"""{self.detector.algo} @{self.detector.fps:.0f}fps"""
+        #arcade.draw_text(output, 10, SCREEN_HEIGHT//2, arcade.color.BLACK, 14)
 
     def update(self, delta_time):
         """
@@ -257,10 +341,6 @@ class MyGame(arcade.Window):
         Normally, you'll call update() on the sprite lists that
         need it.
         """
-
-        # use move detector to control player paddle moves
-        self.detector.update()
-        self.my_paddle.center_x = SCREEN_WIDTH - self.detector.rect[0]
 
         # game is over, start a new one
         if self.game_over :
@@ -271,6 +351,10 @@ class MyGame(arcade.Window):
         if self.ball_lost :
             self.new_ball()
             return
+
+        # use move detector to control player paddle moves
+        self.detector.update()
+        self.my_paddle.center_x = self.detector.center_x
 
         # manage paddles
         self.paddle_list.update()
@@ -345,7 +429,7 @@ class MyGame(arcade.Window):
 
 def parse_args() :
     """
-    Choose source
+    Choose source and algo for tracking
     """
     # define parser for arguments
     parser = argparse.ArgumentParser()
@@ -354,6 +438,11 @@ def parse_args() :
         nargs='?',
         default='0',
         help='device, url or file as video source'
+    )
+    parser.add_argument(
+        '--algo',
+        default='MOSSE',
+        help='Algo for tracking : MOSSE(default), MEDIANFLOW, CSRT, KCF, MIL'
     )
     args = parser.parse_args()
 

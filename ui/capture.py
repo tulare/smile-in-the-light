@@ -27,9 +27,6 @@ class CaptureManager :
         self._videoWriter = None
 
         self.framesElapsed = 0
-        self.frameCounter = 0
-        self.timeBegin = time.time()
-        self.tick = 0
         self.fpsEstimate = 0
 
     @property
@@ -51,6 +48,10 @@ class CaptureManager :
     @height.setter
     def height(self, height) :
         return self._camera.set(cv.CAP_PROP_FRAME_HEIGHT, height)
+
+    @property
+    def fpsAnnounced(self) :
+        return self._camera.get(cv.CAP_PROP_FPS)
 
     def openSettings(self) :
         self._camera.set(cv.CAP_PROP_SETTINGS, 1)
@@ -86,6 +87,9 @@ class CaptureManager :
         assert not self._enteredFrame, \
                'previous enterFrame() had no matching exitFrame()'
 
+        # prepare to evaluate fps
+        self.ticks_start = cv.getTickCount()
+
         if self._camera is not None :
             self._enteredFrame = self._camera.grab()
 
@@ -98,9 +102,6 @@ class CaptureManager :
             self._enteredFrame = False
             return
 
-        # Update the FPS estimate and related variables.
-        self.updateFPS()
-
         # Draw to the window, if any
         if self.previewWindowManager is not None :
             if self.shouldMirrorPreview :
@@ -108,6 +109,11 @@ class CaptureManager :
                 self.previewWindowManager.show(mirroredFrame)
             else :
                 self.previewWindowManager.show(self._frame)
+            self.previewWindowManager.processEvents()
+
+        # Update the FPS estimate and related variables.
+        self.framesElapsed += 1
+        self.fpsEstimate = cv.getTickFrequency() / (cv.getTickCount() - self.ticks_start)
 
         # Write to the image file, if any.
         if self.isWritingImage :
@@ -120,16 +126,6 @@ class CaptureManager :
         # Release the frame.
         self._frame = None
         self._enteredFrame = False
-
-    def updateFPS(self) :
-        # Update the FPS estimate and related variables.
-        self.frameCounter += 1
-        self.framesElapsed += 1
-        timeNow = time.time() - self.timeBegin
-        if timeNow - self.tick >= 1 :
-            self.tick += 1
-            self.fpsEstimate = self.frameCounter
-            self.frameCounter = 0
         
     def writeImage(self, filename) :
         """Write the next exited frame to an image file."""

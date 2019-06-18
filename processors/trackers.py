@@ -1,24 +1,69 @@
 # -*- encoding: utf8 -*-
 
+import re
+import inspect
+
 import cv2 as cv
 import numpy as np
+
 import imutils
 from imutils.object_detection import non_max_suppression
 
 from .core import FrameProcessor
 
 __all__ = [
+    'Trackers',
     'TrackingProcessor', 'StickingProcessor',
     'MeanShiftTrackingProcessor', 'CamShiftTrackingProcessor'
 ]
 
 # ------------------------------------------------------------------------------
 
+class Tracker :
+
+    def __init__(self, tracker_name) :
+        self.tracker = self.create(tracker_name)
+
+    @classmethod
+    def list(cls) :
+        """
+        Search for the implemented trackers
+        """
+        trackers = dict(
+            (m.group(1).lower(), func)
+            for name, func in inspect.getmembers(cv)
+            for m in ( re.match('Tracker(.+)_create', name), )
+            if m is not None
+        )
+
+        return trackers
+
+    @classmethod
+    def create(cls, tracker_name) :
+        """
+        Create tracker instance giving his name (case insensitive)
+        """
+
+        # inventory available trackers
+        trackers = cls.list()
+
+        # case insensitive search
+        tracker_name = tracker_name.lower()
+
+        try :
+            tracker = trackers[tracker_name]()
+        except KeyError :
+            print("tracker '{}' not implemented".format(tracker_name))
+            raise
+
+        return tracker
+
+# ------------------------------------------------------------------------------
+
 class TrackingProcessor(FrameProcessor) :
 
     def params(self, **kwargs) :
-        #self.tracker = cv.TrackerMOSSE_create()
-        self.tracker = cv.TrackerCSRT_create()
+        self.tracker = Tracker.create('MEDIANFLOW')
         
     def apply(self, frame, context) :
         if context.frameno == 1 :

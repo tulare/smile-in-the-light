@@ -12,6 +12,7 @@ class WindowManager :
         self.keypressCallback = keypressCallback
         self._name = windowName
         self._isCreated = False
+        self._waitKeyDelay = 1
 
     @property
     def isCreated(self):
@@ -20,6 +21,14 @@ class WindowManager :
     @property
     def name(self) :
         return self._name
+
+    @property
+    def waitKeyDelay(self) :
+        return self._waitKeyDelay
+
+    @waitKeyDelay.setter
+    def waitKeyDelay(self, delay) :
+        self._waitKeyDelay = delay
 
     def createWindow(self):
         cv.namedWindow(self._name)
@@ -33,7 +42,7 @@ class WindowManager :
         self._isCreated = False
 
     def processEvents(self):
-        keycode = cv.waitKey(1)
+        keycode = cv.waitKey(self._waitKeyDelay)
         if self.keypressCallback is not None and keycode != -1 :
             # Discard any non-ASCII info encoded by GTK.
             keycode &= 0xFF
