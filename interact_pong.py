@@ -12,8 +12,8 @@ import argparse
 import random
 import arcade
 
-SCREEN_WIDTH = 640
-SCREEN_HEIGHT = 480
+#SCREEN_WIDTH = 640
+#SCREEN_HEIGHT = 480
 SCREEN_TITLE = "Pong"
 
 BOUNCE_FACTOR = 1.1
@@ -32,7 +32,7 @@ from processors.trackers import Tracker
 
 class TrackingProcessor(FrameProcessor) :
 
-    def __init__(self, algo='MOSSE') :
+    def __init__(self, algo) :
         self.algo = algo
         self.tracker = None
         self.tracked = False
@@ -61,7 +61,7 @@ class TrackingProcessor(FrameProcessor) :
 
 class Detector :
 
-    def __init__(self, source, algo) :
+    def __init__(self, source, algo, bbox) :
 
         # use DSHOW api for windows
         api = cv.CAP_ANY
@@ -73,20 +73,29 @@ class Detector :
         self.win.createWindow()
         self.win.waitKeyDelay = 1
         self.cap = CaptureManager(self.cam, self.win, False)
+
+        # screen
         self.cap.width = SCREEN_WIDTH
         self.cap.height = SCREEN_HEIGHT
+        # to do : check if it works
+
+        # initial rect for detection
+        self.rect = bbox
 
         # processor
         self.proc = TrackingProcessor(algo)
 
-        # initial rect for detection
-        #self.rect = (275, 58, 133, 404)
-        size_x, size_y = 130, 350
-        self.rect = ((SCREEN_WIDTH - size_x)//2, (SCREEN_HEIGHT - size_y)//2, size_x, size_y)
-
     @property
     def frameno(self) :
         return self.cap.framesElapsed
+
+    @property
+    def width(self) :
+        return self.cap.width
+
+    @property
+    def height(self) :
+        return self.cap.height
 
     @property
     def algo(self) :
@@ -122,7 +131,7 @@ class Detector :
         self.cap.enterFrame()
         frame = self.cap.frame
 
-        # mirror
+        # horizontal mirror
         frame[:,::-1,:] = frame
 
         # process to detection
@@ -135,8 +144,9 @@ class Detector :
         self.cap.exitFrame()
 
     def display_infos(self, frame) :
-        text_info = '{} @{:.0f}fps - {:2d}ms - {:4d}'.format(
+        text_info = '{} {}x{} @{:.0f}fps - {:2d}ms - {:4d}'.format(
             self.algo,
+            self.width, self.height,
             self.cap.fpsEstimate,
             self.win.waitKeyDelay,
             self.frameno,
@@ -235,7 +245,7 @@ class Paddle(arcade.Sprite) :
             self.right = SCREEN_WIDTH
 
 
-class MyGame(arcade.Window):
+class PongGame(arcade.Window):
     """
     Main application class.
 
@@ -244,8 +254,8 @@ class MyGame(arcade.Window):
     with your own code. Don't leave 'pass' in this program.
     """
 
-    def __init__(self, width, height, title, options):
-        super().__init__(width, height, title)
+    def __init__(self, options):
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
 
         arcade.set_background_color(arcade.color.AMAZON)
 
@@ -279,20 +289,24 @@ class MyGame(arcade.Window):
         self.score_bottom = 0
 
         # setup move detector
-        self.detector = Detector(self.options.source, self.options.algo)
+        self.detector = Detector(
+            self.options.source,
+            self.options.algo,
+            self.options.bbox,
+        )
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
 
         for n in range(1) :
             paddle = Paddle(center_y=25)
-            paddle.center_x = SCREEN_WIDTH // 3 * n + SCREEN_WIDTH // 6
+            paddle.center_x = self.width // 3 * n + self.width // 6
             paddle.change_x = random.randrange(-5,5)
             self.paddle_list.append(paddle)
 
         for n in range(3) :
-            paddle = Paddle(center_y=SCREEN_HEIGHT - 25)
-            paddle.center_x = SCREEN_WIDTH // 3 * n + SCREEN_WIDTH // 6
+            paddle = Paddle(center_y=self.height - 25)
+            paddle.center_x = self.width // 3 * n + self.height // 6
             paddle.change_x = random.randrange(-5,5)
             self.paddle_list.append(paddle)
 
@@ -329,11 +343,9 @@ class MyGame(arcade.Window):
         self.ball_list.draw()
 
         output = f"""{self.score_bottom:2d}"""
-        arcade.draw_text(output, 10, SCREEN_HEIGHT//6, arcade.color.BLUE, 28)
+        arcade.draw_text(output, 10, self.height//6, arcade.color.BLUE, 28)
         output = f"""{self.score_top:2d}"""
-        arcade.draw_text(output, 10, SCREEN_HEIGHT//1.33, arcade.color.WHITE, 28)
-        #output = f"""{self.detector.algo} @{self.detector.fps:.0f}fps"""
-        #arcade.draw_text(output, 10, SCREEN_HEIGHT//2, arcade.color.BLACK, 14)
+        arcade.draw_text(output, 10, self.height//1.33, arcade.color.WHITE, 28)
 
     def update(self, delta_time):
         """
@@ -369,7 +381,7 @@ class MyGame(arcade.Window):
             if ball.bottom < 0 :
                 self.ball_lost = True
                 self.score_top += 1
-            if ball.top > SCREEN_HEIGHT :
+            if ball.top > self.height :
                 self.ball_lost = True
                 self.score_bottom += 1
 
@@ -426,11 +438,26 @@ class MyGame(arcade.Window):
         """
         pass
 
-
 def parse_args() :
     """
     Choose source and algo for tracking
     """
+    # argument type : bbox
+    def bbox(s) :
+        try :
+            x, y, w, h = map(int, s.split(','))
+            return x, y, w, h
+        except :
+            raise argparse.ArgumentTypeError("bbox must be x,y,w,h integers")
+
+    # argument type : screen
+    def screen(s) :
+        try :
+            w, h = map(int, s.split('x'))
+            return w, h
+        except :
+            raise argparse.ArgumentTypeError("screen must WxH integers")
+    
     # define parser for arguments
     parser = argparse.ArgumentParser()
     parser.add_argument(
@@ -444,6 +471,16 @@ def parse_args() :
         default='MOSSE',
         help='Algo for tracking : MOSSE(default), MEDIANFLOW, CSRT, KCF, MIL'
     )
+    parser.add_argument(
+        '--bbox',
+        type=bbox,
+        default='275,58,133,404'
+    )
+    parser.add_argument(
+        '--screen',
+        type=screen,
+        default='640x480'
+    )
     args = parser.parse_args()
 
     # adjust arguments
@@ -452,11 +489,14 @@ def parse_args() :
         args.source = int(args.source)
     print(args)
     return args
-    
+
 def main():
     """ Main method """
+    global SCREEN_WIDTH, SCREEN_HEIGHT
+    
     args = parse_args()
-    game = MyGame(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, options=args)
+    SCREEN_WIDTH, SCREEN_HEIGHT = args.screen
+    game = PongGame(options=args)
     game.setup()
     arcade.run()
 
