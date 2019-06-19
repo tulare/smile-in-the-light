@@ -12,8 +12,8 @@ import argparse
 import random
 import arcade
 
-#SCREEN_WIDTH = 640
-#SCREEN_HEIGHT = 480
+SCREEN_WIDTH = 640
+SCREEN_HEIGHT = 480
 SCREEN_TITLE = "Pong"
 
 BOUNCE_FACTOR = 1.1
@@ -257,12 +257,15 @@ class PongGame(arcade.Window):
     def __init__(self, options):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
 
-        arcade.set_background_color(arcade.color.AMAZON)
+        arcade.set_background_color(arcade.color.CATALINA_BLUE)
 
-        # If you have sprite lists, you should create them here,
-        # and set them to None
+        # keep options
+        self.options = options
 
-        # sprite lists
+        # fullscreen start ?
+        self.start_fullscreen = options.fullscreen
+
+        # declare sprite lists
         self.paddle_list = None
         self.ball_list = None
 
@@ -271,9 +274,6 @@ class PongGame(arcade.Window):
         self.score_bottom = 0
         self.ball_lost = False
         self.game_over = False
-
-        # options
-        self.options = options
 
         # the move detector
         self.detector = None
@@ -300,13 +300,13 @@ class PongGame(arcade.Window):
 
         for n in range(1) :
             paddle = Paddle(center_y=25)
-            paddle.center_x = self.width // 3 * n + self.width // 6
+            paddle.center_x = SCREEN_WIDTH // 3 * n + SCREEN_WIDTH // 6
             paddle.change_x = random.randrange(-5,5)
             self.paddle_list.append(paddle)
 
         for n in range(3) :
-            paddle = Paddle(center_y=self.height - 25)
-            paddle.center_x = self.width // 3 * n + self.height // 6
+            paddle = Paddle(center_y=SCREEN_HEIGHT - 25)
+            paddle.center_x = SCREEN_HEIGHT // 3 * n + SCREEN_HEIGHT // 6
             paddle.change_x = random.randrange(-5,5)
             self.paddle_list.append(paddle)
 
@@ -329,6 +329,10 @@ class PongGame(arcade.Window):
             ball = make_ball()
             self.ball_list.append(ball)
 
+    def switch_fullscreen(self) :
+        self.set_fullscreen(not self.fullscreen)
+        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+
     def on_draw(self):
         """
         Render the screen.
@@ -343,9 +347,9 @@ class PongGame(arcade.Window):
         self.ball_list.draw()
 
         output = f"""{self.score_bottom:2d}"""
-        arcade.draw_text(output, 10, self.height//6, arcade.color.BLUE, 28)
+        arcade.draw_text(output, 10, SCREEN_HEIGHT//6, arcade.color.WHITE, 28)
         output = f"""{self.score_top:2d}"""
-        arcade.draw_text(output, 10, self.height//1.33, arcade.color.WHITE, 28)
+        arcade.draw_text(output, 10, SCREEN_HEIGHT//1.33, arcade.color.WHITE, 28)
 
     def update(self, delta_time):
         """
@@ -353,6 +357,10 @@ class PongGame(arcade.Window):
         Normally, you'll call update() on the sprite lists that
         need it.
         """
+        # do we have to start the game fullscreen ?
+        if self.start_fullscreen :
+            self.switch_fullscreen()
+            self.start_fullscreen = False
 
         # game is over, start a new one
         if self.game_over :
@@ -381,7 +389,7 @@ class PongGame(arcade.Window):
             if ball.bottom < 0 :
                 self.ball_lost = True
                 self.score_top += 1
-            if ball.top > self.height :
+            if ball.top > SCREEN_HEIGHT :
                 self.ball_lost = True
                 self.score_bottom += 1
 
@@ -412,7 +420,8 @@ class PongGame(arcade.Window):
         For a full list of keys, see:
         http://arcade.academy/arcade.key.html
         """
-        pass
+        if key == arcade.key.F :
+            self.switch_fullscreen()
 
     def on_key_release(self, key, key_modifiers):
         """
@@ -480,6 +489,11 @@ def parse_args() :
         '--screen',
         type=screen,
         default='640x480'
+    )
+    parser.add_argument(
+        '-f', '--fullscreen',
+        action='store_true',
+        help='Start game fullscreen'
     )
     args = parser.parse_args()
 
