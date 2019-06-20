@@ -7,166 +7,30 @@ template.
 If Python and Arcade are installed, this example can be run from the command line with:
 python -m arcade.examples.starting_template
 """
-import sys
+
 import argparse
 import random
 import arcade
+
+from pong.detector import Detector
+
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 SCREEN_WIDTH = 640
 SCREEN_HEIGHT = 480
 SCREEN_TITLE = "Pong"
 
-BOUNCE_FACTOR = 1.1
+BOUNCE_FACTOR = 1.05
 MAXSPEED = 30
+SERVICE_SPEED = 3, 7
 MATCH_WIN = 11
 
 PADDLE_SCALE = 0.2
 BALL_SCALE = 0.6
 
-import cv2 as cv
-from ui.capture import CaptureManager
-from ui.window import WindowManager
-from processors.core import FrameProcessor
-from processors.trackers import Tracker
-
-
-class TrackingProcessor(FrameProcessor) :
-
-    def __init__(self, algo) :
-        self.algo = algo
-        self.tracker = None
-        self.tracked = False
-        super().__init__()
-
-    def params(self, **kwargs) :
-        self.tracker = Tracker.create(self.algo)
-        
-    def apply(self, frame, context) :
-        # init tracking on first frames
-        if not self.tracked :
-            self.tracked = self.tracker.init(frame, context.rect)
-            return frame
-
-        # update tracking on following frames
-        success, rect = self.tracker.update(frame)
-        if success :
-            x, y, w, h = (int(v) for v in rect)
-            context.rect = (x, y, w, h)
-            cv.rectangle(frame, context.rect, (0,255,0), 2)
-        else :
-            cv.rectangle(frame, context.rect, (0,0,255), 2)
-        
-        return frame
-
-
-class Detector :
-
-    def __init__(self, source, algo, bbox) :
-
-        # use DSHOW api for windows
-        api = cv.CAP_ANY
-        if isinstance(source, int) and sys.platform == 'win32' :
-            api = cv.CAP_DSHOW
-
-        self.cam = cv.VideoCapture(source, api)
-        self.win = WindowManager('capture', self.onKeypress)
-        self.win.createWindow()
-        self.win.waitKeyDelay = 1
-        self.cap = CaptureManager(self.cam, self.win, False)
-
-        # screen
-        self.cap.width = SCREEN_WIDTH
-        self.cap.height = SCREEN_HEIGHT
-        # to do : check if it works
-
-        # initial rect for detection
-        self.rect = bbox
-
-        # processor
-        self.proc = TrackingProcessor(algo)
-
-    @property
-    def frameno(self) :
-        return self.cap.framesElapsed
-
-    @property
-    def width(self) :
-        return self.cap.width
-
-    @property
-    def height(self) :
-        return self.cap.height
-
-    @property
-    def algo(self) :
-        return self.proc.algo
-
-    @property
-    def center_x(self) :
-        """
-        x coordinate of the self.rect center
-        """
-        return self.rect[0] + self.rect[1] // 2
-
-    @property
-    def center_y(self) :
-        """
-        y coordinate of the self.rect center
-        """
-        return self.rect[1] + self.rect[3] // 2
-        
-    def onKeypress(self, keycode) :
-
-        if keycode == ord('-') :
-            self.win.waitKeyDelay -= 1
-        elif keycode == ord('+') :
-            self.win.waitKeyDelay += 1
-
-        if self.win.waitKeyDelay < 1 :
-            self.win.waitKeyDelay = 1            
-
-
-    def update(self) :
-        # enter frame and capture
-        self.cap.enterFrame()
-        frame = self.cap.frame
-
-        # horizontal mirror
-        frame[:,::-1,:] = frame
-
-        # process to detection
-        frame = self.proc.apply(frame, self)
-
-        # display feedback
-        self.display_infos(frame)
-
-        # exit frame and process events
-        self.cap.exitFrame()
-
-    def display_infos(self, frame) :
-        text_info = '{} {}x{} @{:.0f}fps - {:2d}ms - {:4d}'.format(
-            self.algo,
-            self.width, self.height,
-            self.cap.fpsEstimate,
-            self.win.waitKeyDelay,
-            self.frameno,
-        )            
-        cv.putText(
-            frame,
-            text=text_info,
-            org=(15, 15),
-            fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
-            color=(0, 0, 0),
-            thickness=1
-        )    
-        cv.putText(
-            frame,
-            text=text_info,
-            org=(14, 14),
-            fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
-            color=(0, 215, 255),
-            thickness=1
-        )    
+# ------------------------------------------------------------------------------
+# ------------------------------------------------------------------------------
 
 class Ball(arcade.Sprite) :
     """
@@ -176,6 +40,10 @@ class Ball(arcade.Sprite) :
         super().__init__('images/ball.png', scale=BALL_SCALE)
 
     def update(self) :
+        """
+        Limit ball speed to MAXSPEED
+        Bounce on lateral walls
+        """
         # move the ball
         self.center_x += self.change_x
         self.center_y += self.change_y
@@ -215,11 +83,12 @@ def make_ball() :
     ball.center_y = SCREEN_HEIGHT // 2
 
     # random speed and direction
-    ball.change_x = random.randrange(5, 10)
-    ball.change_y = random.randrange(5, 10)
+    ball.change_x = random.randrange(*SERVICE_SPEED)
+    ball.change_y = random.randrange(*SERVICE_SPEED)
 
     return ball
 
+# ------------------------------------------------------------------------------
 
 class Paddle(arcade.Sprite) :
     """
@@ -244,6 +113,7 @@ class Paddle(arcade.Sprite) :
             self.change_x *= -1
             self.right = SCREEN_WIDTH
 
+# ------------------------------------------------------------------------------
 
 class PongGame(arcade.Window):
     """
@@ -294,6 +164,9 @@ class PongGame(arcade.Window):
             self.options.algo,
             self.options.bbox,
         )
+        self.detector.width = SCREEN_WIDTH
+        self.detector.height = SCREEN_HEIGHT
+        self.detector.start()
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
@@ -310,7 +183,7 @@ class PongGame(arcade.Window):
             paddle.change_x = random.randrange(-5,5)
             self.paddle_list.append(paddle)
 
-        # the player paddle controlled by move detector
+        # the player paddle is controlled by move detector
         self.my_paddle = self.paddle_list[0]
         self.my_paddle.change_x = 0
 
@@ -318,11 +191,17 @@ class PongGame(arcade.Window):
         self.new_ball()
 
 
+    def cleanup(self) :
+        """
+        Cleanup the game before starting it again
+        """
+        self.detector.terminate()
+        self.detector.join()
+
     def new_ball(self) :
         """
         Create a fresh new ball
         """
-
         self.ball_lost = False
         self.ball_list = arcade.SpriteList()
         for n in range(1) :
@@ -330,6 +209,9 @@ class PongGame(arcade.Window):
             self.ball_list.append(ball)
 
     def switch_fullscreen(self) :
+        """
+        Manage fullscreen switch and adapt the viewport
+        """
         self.set_fullscreen(not self.fullscreen)
         self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
 
@@ -346,6 +228,7 @@ class PongGame(arcade.Window):
         self.paddle_list.draw()
         self.ball_list.draw()
 
+        # some feedback on the screen : the scores
         output = f"""{self.score_bottom:2d}"""
         arcade.draw_text(output, 10, SCREEN_HEIGHT//6, arcade.color.WHITE, 28)
         output = f"""{self.score_top:2d}"""
@@ -357,13 +240,14 @@ class PongGame(arcade.Window):
         Normally, you'll call update() on the sprite lists that
         need it.
         """
-        # do we have to start the game fullscreen ?
+        # first time : do we have to start the game fullscreen ?
         if self.start_fullscreen :
             self.switch_fullscreen()
             self.start_fullscreen = False
 
         # game is over, start a new one
         if self.game_over :
+            self.cleanup()
             self.setup()
             return
 
@@ -372,8 +256,7 @@ class PongGame(arcade.Window):
             self.new_ball()
             return
 
-        # use move detector to control player paddle moves
-        self.detector.update()
+        # query the move detector to control player paddle moves
         self.my_paddle.center_x = self.detector.center_x
 
         # manage paddles
@@ -447,6 +330,8 @@ class PongGame(arcade.Window):
         """
         pass
 
+# ------------------------------------------------------------------------------
+
 def parse_args() :
     """
     Choose source and algo for tracking
@@ -504,6 +389,8 @@ def parse_args() :
     print(args)
     return args
 
+# ------------------------------------------------------------------------------
+
 def main():
     """ Main method """
     global SCREEN_WIDTH, SCREEN_HEIGHT
@@ -514,6 +401,8 @@ def main():
     game.setup()
     arcade.run()
 
+
+# ------------------------------------------------------------------------------
 
 if __name__ == "__main__":
     main()
