@@ -18,6 +18,7 @@ class TrackingZone :
         """
         Underlying structure for tracking zone
         """
+        self.bbox_ini = bbox
         self.bbox = bbox
         self.algo = algo
         self.proc = TrackingProcessor(self.algo)
@@ -69,7 +70,7 @@ class Detector(threading.Thread) :
     xZone is computed by spacing zones equaly in the x direction.
     """
 
-    def __init__(self, source, algo, nZones=3, yZone=100, wZone=100, hZone=320) :
+    def __init__(self, source, width, height, algo, nZones=3, yZone=100, wZone=100, hZone=320) :
 
         # init threading.Thread
         super().__init__(name='DetectorThread', daemon=True)
@@ -81,6 +82,9 @@ class Detector(threading.Thread) :
 
         # init camera capture
         self.cam = cv.VideoCapture(source, api)
+        self.width = width
+        self.height = height
+        # to do : verify size
 
         # fps and frameno
         self.fps = 0
@@ -88,6 +92,9 @@ class Detector(threading.Thread) :
 
         # algo
         self._algo = algo
+
+        # ready event
+        self.ready = threading.Event()
 
         # zones for detection
         self.nZones = nZones
@@ -111,7 +118,7 @@ class Detector(threading.Thread) :
                     algo=self.algo
                 )
             )
-            logging.debug('init TrackingZone %s', zone)
+            logging.debug('init_zones : TrackingZone #%s', zone)
 
     @property
     def width(self) :
@@ -135,28 +142,61 @@ class Detector(threading.Thread) :
 
     def center_x(self, index) :
         """
-        x coordinate of the self.rect center
+        center_x coordinate of the zones[index].bbox center
         """
+        cx = 0
         try :
-            return int(self.zones[index].bbox[0] + self.zones[index].bbox[1] // 2)
+            cx = self.zones[index].bbox[0] + self.zones[index].bbox[1] // 2
         except IndexError :
-            logging.debug('bad index %d', index)
-            return 10
+            logging.debug('center_x : bad index %d', index)
+
+        return int(cx)
+
+    def delta_x(self, index) :
+        """
+        delta_x coordinate between zones[index].bbox_ini and zones[index].bbox
+        """
+        dx = 0
+        try :
+            icx = self.zones[index].bbox_ini[0] + self.zones[index].bbox_ini[1] // 2
+            dx = self.center_x(index) - icx
+        except IndexError :
+            logging.debug('delta_x : bad index %d', index)
+
+        return int(dx)
 
     def center_y(self, index) :
         """
-        y coordinate of the self.rect center
+        y coordinate of the zones[index].bbox center
         """
+        cy = 0
         try :
-            return int(self.zones[index].bbox[1] + self.zones[index].bbox[3] // 2)
+            cy = self.zones[index].bbox[1] + self.zones[index].bbox[3] // 2
         except IndexError :
-            logging.debug('bad index %d', index)
-            return 10
+            logging.debug('center_y : bad index %d', index)
+
+        return int(cy)
+
+    def delta_y(self, index) :
+        """
+        delta_y coordinate between zones[index].bbox_ini and zones[index].bbox
+        """
+        dy = 0
+        try :
+            iy = self.zones[index].bbox_ini[1] + self.zones[index].bbox_ini[3] // 2
+            dy = self.center_y(index) - iy
+        except IndexError :
+            logging.debug('delta_y : bad index %d', index)
+            
+        return int(dy)
 
     def run(self) :
         """
         Run the mainloop for camera capture and processing
         """
+
+        # prepare zones
+        self.init_zones()
         
         # prepare the preview
         cv.namedWindow(self.name)
@@ -172,6 +212,11 @@ class Detector(threading.Thread) :
             if frame is None :
                 logging.debug('no more frame')
                 break
+
+            # event
+            if self.frameno == 30 :
+                logging.debug('trigger ready event')
+                self.ready.set()
 
             # horizontal mirror
             frame[:,::-1,:] = frame
@@ -201,11 +246,11 @@ class Detector(threading.Thread) :
             self.width, self.height,
             self.fps,
             self.frameno,
-        )            
+        )
         cv.putText(
             frame,
             text=text_info,
-            org=(15, 15),
+            org=(16, 16),
             fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
             color=(0, 0, 0),
             thickness=1
@@ -213,11 +258,32 @@ class Detector(threading.Thread) :
         cv.putText(
             frame,
             text=text_info,
-            org=(14, 14),
+            org=(15, 15),
             fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
             color=(0, 215, 255),
             thickness=1
-        )    
+        )
+        for n in range(len(self.zones)) :
+            text_info = '#{} : {:4d},{:4d}'.format(
+                n, self.delta_x(n), self.delta_y(n)
+            )
+            cv.putText(
+                frame,
+                text=text_info,
+                org=(16, 16+16*(n+1)),
+                fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
+                color=(0, 0, 0),
+                thickness=1
+            )    
+            cv.putText(
+                frame,
+                text=text_info,
+                org=(15, 15+16*(n+1)),
+                fontFace=cv.FONT_HERSHEY_SIMPLEX, fontScale=0.5,
+                color=(60, 200, 60),
+                thickness=1
+            )
+
 
     def terminate(self) :
         """

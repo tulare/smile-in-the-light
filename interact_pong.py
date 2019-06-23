@@ -29,7 +29,6 @@ SERVICE_SPEED = 3, 7
 
 MATCH_WIN = 11
 GAME_OVER_WAIT = 2
-DETECTOR_WAIT = 1.5
 
 PADDLE_SCALE = 0.2
 BALL_SCALE = 0.6
@@ -172,15 +171,13 @@ class PongGame(arcade.Window):
         # setup move detector
         self.detector = Detector(
             self.options.source,
+            SCREEN_WIDTH, SCREEN_HEIGHT,
             self.options.algo,
             nZones=self.options.nZones,
             yZone=self.options.yZone,
             wZone=self.options.wZone,
             hZone=self.options.hZone
         )
-        self.detector.width = SCREEN_WIDTH
-        self.detector.height = SCREEN_HEIGHT
-        self.detector.init_zones()
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
@@ -204,14 +201,9 @@ class PongGame(arcade.Window):
 
         # start detector
         self.detector.start()
-        time.sleep(DETECTOR_WAIT)
-        # synchro (to do : add condition instead timing)
+        self.detector.ready.wait()
 
         self.game_over = False
-
-        # a fix to pass window front of others
-        self.set_visible(True)
-        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
 
         logging.debug('setup done')
 
@@ -258,7 +250,7 @@ class PongGame(arcade.Window):
         Manage fullscreen switch and adapt the viewport
         """
         self.set_fullscreen(not self.fullscreen)
-        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        #self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
 
     def on_draw(self):
         """
@@ -291,6 +283,10 @@ class PongGame(arcade.Window):
         need it.
         """
 
+        # fix : keep window in front
+        self.set_visible(True)
+        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        
         # first time fix : do we have to start the game fullscreen ?
         if self.start_fullscreen :
             self.switch_fullscreen()
