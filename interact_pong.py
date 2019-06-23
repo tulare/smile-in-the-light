@@ -8,7 +8,9 @@ If Python and Arcade are installed, this example can be run from the command lin
 python -m arcade.examples.starting_template
 """
 
+import time
 import argparse
+import logging
 import random
 import arcade
 
@@ -24,7 +26,10 @@ SCREEN_TITLE = "Pong"
 BOUNCE_FACTOR = 1.05
 MAXSPEED = 30
 SERVICE_SPEED = 3, 7
+
 MATCH_WIN = 11
+GAME_OVER_WAIT = 2
+DETECTOR_WAIT = 1.5
 
 PADDLE_SCALE = 0.2
 BALL_SCALE = 0.6
@@ -126,6 +131,7 @@ class PongGame(arcade.Window):
 
     def __init__(self, options):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
+        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
 
         arcade.set_background_color(arcade.color.CATALINA_BLUE)
 
@@ -140,6 +146,7 @@ class PongGame(arcade.Window):
         self.ball_list = None
 
         # game variables
+        self.human_paddles = []
         self.score_top = 0 
         self.score_bottom = 0
         self.ball_lost = False
@@ -152,61 +159,99 @@ class PongGame(arcade.Window):
         """
         Setup a new party
         """
-        # Create your sprites and sprite lists here
+        logging.debug('setup new game')
 
-        self.game_over = False
+        # game state variables
+        self.ball_lost = False
         self.score_top = 0
         self.score_bottom = 0
+
+        # human controlled paddles list
+        self.human_paddles = []
 
         # setup move detector
         self.detector = Detector(
             self.options.source,
             self.options.algo,
-            self.options.bbox,
+            nZones=self.options.nZones,
+            yZone=self.options.yZone,
+            wZone=self.options.wZone,
+            hZone=self.options.hZone
         )
         self.detector.width = SCREEN_WIDTH
         self.detector.height = SCREEN_HEIGHT
-        self.detector.start()
+        self.detector.init_zones()
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
 
-        for n in range(1) :
+        # human paddles
+        for n in range(self.options.nZones) :
             paddle = Paddle(center_y=25)
             paddle.center_x = SCREEN_WIDTH // 3 * n + SCREEN_WIDTH // 6
-            paddle.change_x = random.randrange(-5,5)
+            self.human_paddles.append(paddle)
             self.paddle_list.append(paddle)
 
+        # automatic paddles
         for n in range(3) :
             paddle = Paddle(center_y=SCREEN_HEIGHT - 25)
             paddle.center_x = SCREEN_HEIGHT // 3 * n + SCREEN_HEIGHT // 6
             paddle.change_x = random.randrange(-5,5)
             self.paddle_list.append(paddle)
 
-        # the player paddle is controlled by move detector
-        self.my_paddle = self.paddle_list[0]
-        self.my_paddle.change_x = 0
-
         # setup a new ball !
         self.new_ball()
 
+        # start detector
+        self.detector.start()
+        time.sleep(DETECTOR_WAIT)
+        # synchro (to do : add condition instead timing)
 
-    def cleanup(self) :
+        self.game_over = False
+
+        # a fix to pass window front of others
+        self.set_visible(True)
+        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+
+        logging.debug('setup done')
+
+    def gameover(self) :
         """
         Cleanup the game before starting it again
         """
+        logging.debug('gameover')
+
+        # clean paddles
+        for paddle in self.paddle_list :
+            paddle.kill()
+        self.paddle_list = None
+
+        # clean balls
+        for ball in self.ball_list :
+            ball.kill()
+        self.ball_list = None
+
+        # time for users to aknowledge Game Over
+        # to do : a Real and independant Game Over Mode
+        time.sleep(GAME_OVER_WAIT)
+
+        # stop detector
         self.detector.terminate()
         self.detector.join()
+        self.detector = None
+
+        logging.debug('gameover done')
 
     def new_ball(self) :
         """
         Create a fresh new ball
         """
-        self.ball_lost = False
+        logging.debug('new ball')
         self.ball_list = arcade.SpriteList()
         for n in range(1) :
             ball = make_ball()
             self.ball_list.append(ball)
+        self.ball_lost = False
 
     def switch_fullscreen(self) :
         """
@@ -234,30 +279,37 @@ class PongGame(arcade.Window):
         output = f"""{self.score_top:2d}"""
         arcade.draw_text(output, 10, SCREEN_HEIGHT//1.33, arcade.color.WHITE, 28)
 
+        # game over display
+        if self.game_over :
+            output = """GAME OVER"""
+            arcade.draw_text(output, SCREEN_WIDTH//3.25, SCREEN_HEIGHT//2, arcade.color.RED, 40)
+
     def update(self, delta_time):
         """
         All the logic to move, and the game logic goes here.
         Normally, you'll call update() on the sprite lists that
         need it.
         """
-        # first time : do we have to start the game fullscreen ?
+
+        # first time fix : do we have to start the game fullscreen ?
         if self.start_fullscreen :
             self.switch_fullscreen()
             self.start_fullscreen = False
 
         # game is over, start a new one
         if self.game_over :
-            self.cleanup()
+            logging.debug('game over during update')
+            self.gameover()
             self.setup()
             return
 
         # the ball is lost, get a new one
         if self.ball_lost :
             self.new_ball()
-            return
 
         # query the move detector to control player paddle moves
-        self.my_paddle.center_x = self.detector.center_x
+        for n, paddle in enumerate(self.human_paddles) :
+            paddle.center_x = self.detector.center_x(n)
 
         # manage paddles
         self.paddle_list.update()
@@ -303,8 +355,13 @@ class PongGame(arcade.Window):
         For a full list of keys, see:
         http://arcade.academy/arcade.key.html
         """
+        # switch fullscreen / windowed
         if key == arcade.key.F :
             self.switch_fullscreen()
+
+        # reset game
+        elif key == arcade.key.R :
+            self.game_over = True
 
     def on_key_release(self, key, key_modifiers):
         """
@@ -336,14 +393,6 @@ def parse_args() :
     """
     Choose source and algo for tracking
     """
-    # argument type : bbox
-    def bbox(s) :
-        try :
-            x, y, w, h = map(int, s.split(','))
-            return x, y, w, h
-        except :
-            raise argparse.ArgumentTypeError("bbox must be x,y,w,h integers")
-
     # argument type : screen
     def screen(s) :
         try :
@@ -366,9 +415,29 @@ def parse_args() :
         help='Algo for tracking : MOSSE(default), MEDIANFLOW, CSRT, KCF, MIL'
     )
     parser.add_argument(
-        '--bbox',
-        type=bbox,
-        default='275,58,133,404'
+        '-n', '--nZones',
+        type=int,
+        choices=range(1,4),
+        default=1,
+        help='Number of zones (ie: paddles)'
+    )
+    parser.add_argument(
+        '-Y', '--yZone',
+        type=int,
+        default=58,
+        help='top coord for each zone'
+    )
+    parser.add_argument(
+        '-W', '--wZone',
+        type=int,
+        default=130,
+        help='width of each tracking zone'
+    )
+    parser.add_argument(
+        '-H', '--hZone',
+        type=int,
+        default=400,
+        help='height of each tracking zone'
     )
     parser.add_argument(
         '--screen',
@@ -386,7 +455,7 @@ def parse_args() :
     # convert source to int if contains only decimal digits
     if args.source.isdecimal() :
         args.source = int(args.source)
-    print(args)
+    logging.debug(args)
     return args
 
 # ------------------------------------------------------------------------------
@@ -394,6 +463,12 @@ def parse_args() :
 def main():
     """ Main method """
     global SCREEN_WIDTH, SCREEN_HEIGHT
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='(%(threadName)-10s) %(message)s'
+    )
+    logging.debug('start main')
     
     args = parse_args()
     SCREEN_WIDTH, SCREEN_HEIGHT = args.screen
