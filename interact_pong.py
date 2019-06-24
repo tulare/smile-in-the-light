@@ -9,6 +9,7 @@ python -m arcade.examples.starting_template
 """
 
 import time
+import gc
 import argparse
 import logging
 import random
@@ -129,16 +130,12 @@ class PongGame(arcade.Window):
     """
 
     def __init__(self, options):
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
-        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE, fullscreen=options.fullscreen)
 
         arcade.set_background_color(arcade.color.CATALINA_BLUE)
 
         # keep options
         self.options = options
-
-        # fullscreen start ?
-        self.start_fullscreen = options.fullscreen
 
         # declare sprite lists
         self.paddle_list = None
@@ -203,6 +200,9 @@ class PongGame(arcade.Window):
         self.detector.start()
         self.detector.ready.wait()
 
+        # ensure to keep window in front
+        self.send_to_front()
+
         self.game_over = False
 
         logging.debug('setup done')
@@ -213,15 +213,18 @@ class PongGame(arcade.Window):
         """
         logging.debug('gameover')
 
-        # clean paddles
-        for paddle in self.paddle_list :
-            paddle.kill()
-        self.paddle_list = None
+        # kill sprites : balls and paddles
+        self.kill_balls()
+        self.kill_paddles()
 
-        # clean balls
-        for ball in self.ball_list :
-            ball.kill()
-        self.ball_list = None
+        # force garbage collection between games
+        gc_stats = gc.get_count()
+        gc.collect()
+        logging.debug(
+            'garbage collection : {} -> {}'.format(
+                gc_stats, gc.get_count()
+            )
+        )
 
         # time for users to aknowledge Game Over
         # to do : a Real and independant Game Over Mode
@@ -234,11 +237,31 @@ class PongGame(arcade.Window):
 
         logging.debug('gameover done')
 
+    def kill_balls(self) :
+        """
+        Kill balls
+        """
+        if self.ball_list is not None :
+            for ball in self.ball_list :
+                ball.kill()
+            self.ball_list = None
+
+    def kill_paddles(self) :
+        """
+        Kill paddles
+        """
+        if self.paddle_list is not None :
+            for paddle in self.paddle_list :
+                paddle.kill()
+            self.paddle_list = None
+
     def new_ball(self) :
         """
         Create a fresh new ball
         """
         logging.debug('new ball')
+
+        self.kill_balls()
         self.ball_list = arcade.SpriteList()
         for n in range(1) :
             ball = make_ball()
@@ -247,11 +270,18 @@ class PongGame(arcade.Window):
 
     def switch_fullscreen(self) :
         """
-        Manage fullscreen switch and adapt the viewport
+        Manage switch between fullscreen and windowed mode
         """
         self.set_fullscreen(not self.fullscreen)
-        #self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        self.send_to_front()
 
+    def send_to_front(self) :
+        """
+        Send game window to front and adapt the viewport
+        """
+        self.set_visible(True)
+        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        
     def on_draw(self):
         """
         Render the screen.
@@ -283,18 +313,12 @@ class PongGame(arcade.Window):
         need it.
         """
 
-        # fix : keep window in front
-        self.set_visible(True)
-        self.set_viewport(0, SCREEN_WIDTH, 0, SCREEN_HEIGHT)
+        # fix for fullscreen : keep window to front
+        if self.fullscreen :
+            self.send_to_front()
         
-        # first time fix : do we have to start the game fullscreen ?
-        if self.start_fullscreen :
-            self.switch_fullscreen()
-            self.start_fullscreen = False
-
         # game is over, start a new one
         if self.game_over :
-            logging.debug('game over during update')
             self.gameover()
             self.setup()
             return
@@ -310,7 +334,7 @@ class PongGame(arcade.Window):
         # manage paddles
         self.paddle_list.update()
 
-        # manage the ball (move, left, rigth collision)
+        # manage the ball (move, left & right collision)
         self.ball_list.update()
 
         # manage ball collision 
@@ -351,12 +375,14 @@ class PongGame(arcade.Window):
         For a full list of keys, see:
         http://arcade.academy/arcade.key.html
         """
+        
         # switch fullscreen / windowed
         if key == arcade.key.F :
             self.switch_fullscreen()
 
         # reset game
         elif key == arcade.key.R :
+            logging.debug('reset game (on_key_press: R)')
             self.game_over = True
 
     def on_key_release(self, key, key_modifiers):
