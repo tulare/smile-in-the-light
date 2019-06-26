@@ -4,58 +4,11 @@ import sys
 import logging
 import threading
 import cv2 as cv
-from processors.core import FrameProcessor
-from processors.trackers import Tracker
+
+from processors.trackers import TrackingZone
 
 __all_ = [ 'Detector' ]
 
-
-# ------------------------------------------------------------------------------
-
-class TrackingZone :
-
-    def __init__(self, bbox, algo) :
-        """
-        Underlying structure for tracking zone
-        """
-        self.bbox_ini = bbox
-        self.bbox = bbox
-        self.algo = algo
-        self.proc = TrackingProcessor(self.algo)
-
-# ------------------------------------------------------------------------------
-
-class TrackingProcessor(FrameProcessor) :
-    """
-    Use an opencv Tracking algo to follow context.bbox
-    """
-
-    def __init__(self, algo) :
-        self.algo = algo
-        self.tracker = None
-        self.tracked = False
-        super().__init__()
-
-    def params(self, **kwargs) :
-        self.tracker = Tracker.create(self.algo)
-        
-    def apply(self, frame, context) :
-
-        # init tracking on first frames
-        if not self.tracked :
-            self.tracked = self.tracker.init(frame, context.bbox)
-            return frame
-
-        # update tracking on following frames
-        success, rect = self.tracker.update(frame)
-        if success :
-            x, y, w, h = (int(v) for v in rect)
-            context.bbox = (x, y, w, h)
-            cv.rectangle(frame, context.bbox, (0,255,0), 2)
-        else :
-            cv.rectangle(frame, context.bbox, (0,0,255), 2)
-        
-        return frame
 
 # ------------------------------------------------------------------------------
 
@@ -65,12 +18,13 @@ class Detector(threading.Thread) :
     Typical algorithms (algo) : MOSSE(default), MEDIANFLOW, KCF, CSRT, MIL
     Zones are defined by theses parameters :
     nZones : number of zones
-    yZone : top coordinate of each zone
-    wZone, hZone : width and height of each zone
+    yZone : top y coordinate for each zone
+    wZone, hZone : width and height for each zone
     xZone is computed by spacing zones equaly in the x direction.
     """
 
-    def __init__(self, source, width, height, algo, nZones=3, yZone=100, wZone=100, hZone=320) :
+    def __init__(self, source, width=640, height=480, algo='MOSSE',
+                 nZones=3, yZone=100, wZone=100, hZone=320) :
 
         # init threading.Thread
         super().__init__(name='DetectorThread', daemon=True)
@@ -91,6 +45,7 @@ class Detector(threading.Thread) :
         self.frameno = 0
 
         # algo
+        self._restart = False
         self._algo = algo
 
         # ready event
@@ -120,6 +75,15 @@ class Detector(threading.Thread) :
             )
             logging.debug('init_zones : TrackingZone #%s', zone)
 
+    def reinit_tracking(self) :
+        """
+        reinit tracking for each zone
+        """
+        self._restart = False
+        self.frameno = 0
+        for zone in self.zones :
+            zone.tracked = False
+
     @property
     def width(self) :
         return self.cam.get(cv.CAP_PROP_FRAME_WIDTH)
@@ -146,7 +110,7 @@ class Detector(threading.Thread) :
         """
         cx = 0
         try :
-            cx = self.zones[index].bbox[0] + self.zones[index].bbox[1] // 2
+            cx = self.zones[index].bbox[0] + self.zones[index].bbox[2] // 2
         except IndexError :
             logging.debug('center_x : bad index %d', index)
 
@@ -158,7 +122,7 @@ class Detector(threading.Thread) :
         """
         dx = 0
         try :
-            icx = self.zones[index].bbox_ini[0] + self.zones[index].bbox_ini[1] // 2
+            icx = self.zones[index].bbox_ini[0] + self.zones[index].bbox_ini[2] // 2
             dx = self.center_x(index) - icx
         except IndexError :
             logging.debug('delta_x : bad index %d', index)
@@ -204,6 +168,10 @@ class Detector(threading.Thread) :
         while True :
             t1 = cv.getTickCount()
 
+            # restart tracking ?
+            if self._restart :
+                self.reinit_tracking()
+
             # grab a new frame
             ok, frame = self.cam.read()
             self.frameno += 1
@@ -214,7 +182,7 @@ class Detector(threading.Thread) :
                 break
 
             # event
-            if self.frameno == 30 :
+            if self.frameno == 20 :
                 logging.debug('trigger ready event')
                 self.ready.set()
 
@@ -223,7 +191,7 @@ class Detector(threading.Thread) :
 
             # process the frame
             for zone in self.zones :
-                frame = zone.proc.apply(frame, zone)
+                frame = zone.update(frame)
 
             # add onscreen feedback
             self.display_infos(frame)
@@ -284,6 +252,19 @@ class Detector(threading.Thread) :
                 thickness=1
             )
 
+    def restart(self) :
+        """
+        Restart tracking
+        """
+        logging.debug('restart tracking')
+        if self.isAlive() :
+            self.ready.clear()
+            self._restart = True
+
+            # avoid deadlock (waiting for myself)
+            if self != threading.currentThread() :
+                logging.debug('wait')
+                self.ready.wait()
 
     def terminate(self) :
         """
@@ -298,6 +279,11 @@ class Detector(threading.Thread) :
         """
         keycode = cv.waitKey(1)
         if keycode == ord('q') :
+            logging.debug('key q : terminate tracking')
             self.terminate()
+        if keycode == ord('r') :
+            logging.debug('key r : restart tracking')
+            self.restart()
         elif keycode == ord('i') :
+            logging.debug('key i : camera settings')
             self.cam.set(cv.CAP_PROP_SETTINGS, True)

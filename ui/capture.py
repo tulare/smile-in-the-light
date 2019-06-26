@@ -176,11 +176,12 @@ class CaptureManager :
 
 class CameraCapture(object) :
 
-    def __init__(self, master=None, source=0, windowName='Camera', processor=None) :
+    def __init__(self, master=None, source=0, windowName='Camera', processor=None, zone=None) :
         self.master = master
         self.source = source
         self.windowName = windowName
         self.processor = processor
+        self.zone = zone
         self.camera = None
         self.clicked = False
         self.frameno = 0
@@ -222,6 +223,8 @@ class CameraCapture(object) :
         self.frameno = 0
 
     def process_frame(self, frame) :
+        if self.zone is not None :
+            return self.zone.update(frame)
         if self.processor is not None :
             return self.processor.apply(frame, self)
         return frame

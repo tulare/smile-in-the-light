@@ -149,7 +149,17 @@ class PongGame(arcade.Window):
         self.game_over = False
 
         # the move detector
-        self.detector = None
+        self.detector = Detector(
+            self.options.source,
+            SCREEN_WIDTH, SCREEN_HEIGHT,
+            self.options.algo,
+            nZones=self.options.nZones,
+            yZone=self.options.yZone,
+            wZone=self.options.wZone,
+            hZone=self.options.hZone
+        )
+        self.detector.start()
+        
         
     def setup(self):
         """
@@ -164,17 +174,6 @@ class PongGame(arcade.Window):
 
         # human controlled paddles list
         self.human_paddles = []
-
-        # setup move detector
-        self.detector = Detector(
-            self.options.source,
-            SCREEN_WIDTH, SCREEN_HEIGHT,
-            self.options.algo,
-            nZones=self.options.nZones,
-            yZone=self.options.yZone,
-            wZone=self.options.wZone,
-            hZone=self.options.hZone
-        )
         
         # setup the paddles !
         self.paddle_list = arcade.SpriteList()
@@ -196,9 +195,8 @@ class PongGame(arcade.Window):
         # setup a new ball !
         self.new_ball()
 
-        # start detector
-        self.detector.start()
-        self.detector.ready.wait()
+        # start/restart detector
+        self.detector.restart()
 
         # ensure to keep window in front
         self.send_to_front()
@@ -229,11 +227,6 @@ class PongGame(arcade.Window):
         # time for users to aknowledge Game Over
         # to do : a Real and independant Game Over Mode
         time.sleep(GAME_OVER_WAIT)
-
-        # stop detector
-        self.detector.terminate()
-        self.detector.join()
-        self.detector = None
 
         logging.debug('gameover done')
 

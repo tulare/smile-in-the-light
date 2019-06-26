@@ -45,7 +45,7 @@ class Cameo :
                     ('Filter', self._filter.__class__.__name__),
                     ('Elapsed', self.capture.framesElapsed),
                     ('FPS/cv', self.capture.camera.get(cv.CAP_PROP_FPS)),
-                    ('FPS', self.capture.fpsEstimate)
+                    ('FPS', '{:2.0f}'.format(self.capture.fpsEstimate))
                 ]
                 for (i, (k, v)) in enumerate(info):
                     text = "{}: {}".format(k, v)

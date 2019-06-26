@@ -4,6 +4,7 @@ import tkinter
 from ui.capture import CameraCapture
 from processors.counters import FramecountProcessor
 from processors.trackers import (
+    TrackingZone,
     TrackingProcessor,
     MeanShiftTrackingProcessor,
     CamShiftTrackingProcessor,
@@ -64,88 +65,64 @@ class Application(tkinter.Tk) :
         backsub_btn = tkinter.Button(self, text='Background Suppression', command=self.cmd_backsub)
         backsub_btn.pack(fill=tkinter.BOTH)
 
-    def cmd_capture(self) :
+    def cmd_run(self, processor=None, zone=None) :
         self.camera.reset_counter()
         source = self.source.get()
-        processor = FramecountProcessor()      
         if source :
+            self.camera.zone = zone
             self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source            
+            self.camera.source = int(source) if source.isdecimal() else source
             self.after(500, self.camera.run)
+
+    def cmd_capture(self) :
+        self.cmd_run(
+            processor = FramecountProcessor()
+        )
 
     def cmd_sticking(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
-        processor = StickingProcessor()
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source
-            self.after(500, self.camera.run)
+        self.cmd_run(
+            processor = StickingProcessor()
+        )
 
     def cmd_tracking(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
-        processor = TrackingProcessor()
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source
-            self.after(500, self.camera.run)
+        bbox = 270, 240, 100, 130
+        self.cmd_run(
+            zone = TrackingZone(bbox, 'MOSSE')
+        )
 
     def cmd_meanshift(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
-        processor = MeanShiftTrackingProcessor()
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source
-            self.after(500, self.camera.run)
+        self.cmd_run(
+            processor = MeanShiftTrackingProcessor()
+        )
 
     def cmd_camshift(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
-        processor = CamShiftTrackingProcessor()
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source
-            self.after(500, self.camera.run)
+        self.cmd_run(
+            processor = CamShiftTrackingProcessor()
+        )
 
     def cmd_pedestrian(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
-        processor = PedestrianProcessor()
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source
-            self.after(500, self.camera.run)
-
+        self.cmd_run(
+            processor = PedestrianProcessor()
+        )
+        
     def cmd_lines(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
         processor = LinesProcessor()
         processor.params(minLineLength=60, maxLineGap=3)
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source            
-            self.after(500, self.camera.run)
-
+        self.cmd_run(
+            processor = processor
+        )
+        
     def cmd_circles(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
         processor = CirclesProcessor()
         processor.params(minRadius=5, maxRadius=40)
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source            
-            self.after(500, self.camera.run)
+        self.cmd_run(
+            processor = processor
+        )
 
     def cmd_backsub(self, event=None) :
-        self.camera.reset_counter()
-        source = self.source.get()
-        processor = BackSubProcessor()
-        if source :
-            self.camera.processor = processor
-            self.camera.source = int(source) if source.isdecimal() else source            
-            self.after(500, self.camera.run)
+        self.cmd_run(
+            processor = BackSubProcessor()
+        )
 
     def cmd_close(self) :
         self.camera.release()

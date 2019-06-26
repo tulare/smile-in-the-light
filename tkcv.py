@@ -76,7 +76,7 @@ class Application :
         self.show_frame(frame)
         
         self.capman.exitFrame()
-        self.fps.config(text='fps : {:2d}'.format(self.capman.fpsEstimate))
+        self.fps.config(text='fps : {:2.0f}'.format(self.capman.fpsEstimate))
         self.root.after(20, self.video_loop)
 
 if __name__ == '__main__' :

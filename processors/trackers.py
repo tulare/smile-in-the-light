@@ -2,6 +2,7 @@
 
 import re
 import inspect
+import logging
 
 import cv2 as cv
 import numpy as np
@@ -12,7 +13,8 @@ from imutils.object_detection import non_max_suppression
 from .core import FrameProcessor
 
 __all__ = [
-    'Trackers',
+    'Tracker',
+    'TrackingZone',
     'TrackingProcessor', 'StickingProcessor',
     'MeanShiftTrackingProcessor', 'CamShiftTrackingProcessor'
 ]
@@ -60,26 +62,57 @@ class Tracker :
 
 # ------------------------------------------------------------------------------
 
+class TrackingZone :
+
+    def __init__(self, bbox, algo) :
+        """
+        Underlying structure for tracking a zone
+        """
+        self.bbox_ini = bbox
+        self.bbox = bbox
+        self.tracked = False
+        self.algo = algo
+        self.proc = TrackingProcessor(self.algo)
+
+    def update(self, frame) :
+        return self.proc.apply(frame, self)
+
+# ------------------------------------------------------------------------------
+
 class TrackingProcessor(FrameProcessor) :
+    """
+    Use an opencv Tracking algo to follow context.bbox
+    context object must have same interface than TrackingZone
+    """
+
+    def __init__(self, algo) :
+        self.algo = algo
+        self.tracker = None
+        super().__init__()
 
     def params(self, **kwargs) :
-        self.tracker = Tracker.create('MEDIANFLOW')
+        pass
         
     def apply(self, frame, context) :
-        if context.frameno == 1 :
-            roi = cv.selectROI('Select Roi', frame)
-            cv.destroyWindow('Select Roi')
-            print('roi', roi)
-            ok = self.tracker.init(frame, roi)
+
+        # init tracking on first frames
+        if not context.tracked :
+            self.tracker = Tracker.create(self.algo)
+            context.tracked = self.tracker.init(frame, context.bbox_ini)
+            logging.debug('tracking init : {} {}'.format(self.tracker, context.tracked))
             return frame
 
+        # update tracking on following frames
         success, rect = self.tracker.update(frame)
         if success :
             x, y, w, h = (int(v) for v in rect)
-            cv.rectangle(frame, (x, y), (x+w, y+h), (0,255,0), 2)
+            context.bbox = (x, y, w, h)
+            cv.rectangle(frame, context.bbox, (0,255,0), 2)
+        else :
+            cv.rectangle(frame, context.bbox, (0,0,255), 2)
         
         return frame
-        
+
 # ------------------------------------------------------------------------------
 
 class StickingProcessor(FrameProcessor) :
